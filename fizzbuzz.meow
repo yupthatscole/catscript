@@ -1,0 +1,21 @@
+# fizzbuzz in catscript
+cat("hello world")
+
+for i in 1 to 100 {
+    if i % 15 == 0 {
+        cat("FizzBuzz")
+    } else if i % 3 == 0 {
+        cat("Fizz")
+    } else if i % 5 == 0 {
+        cat("Buzz")
+    } else {
+        cat(i)
+    }
+}
+
+hunt double(x) {
+    bring x * 2
+}
+
+kittens = litter[1, 2, 3]
+happy = purr

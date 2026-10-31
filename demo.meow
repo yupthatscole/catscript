@@ -1,0 +1,54 @@
+# a tour of catscript
+
+cat("hello world")
+
+# variables
+name = "tuft"
+lives = 9
+cat(name + " has " + lives + " lives")
+
+# hunts (functions) and bring (return)
+hunt double(x) {
+    bring x * 2
+}
+cat("double 21 is", double(21))
+
+hunt factorial(n) {
+    if n <= 1 {
+        bring 1
+    }
+    bring n * factorial(n - 1)
+}
+cat("5! =", factorial(5))
+
+# litters (lists)
+kittens = litter["mochi", "pip", "clover"]
+add(kittens, "beans")
+cat(kittens)
+cat("there are", size(kittens), "kittens. the first one is", kittens[0])
+
+# purr / hiss
+hungry = purr
+if hungry and lives > 0 {
+    cat("feed me")
+}
+
+# repeat
+repeat 3 {
+    cat("meow")
+}
+
+# try / pounce catches errors instead of crashing
+try {
+    cat(10 / 0)
+} pounce oops {
+    cat("caught it:", oops)
+}
+
+# knock deletes a variable
+knock(name)
+try {
+    cat(name)
+} pounce oops {
+    cat("name is gone:", oops)
+}
