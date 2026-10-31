@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CatScript Playground</title>
+<meta name="description" content="write and run catscript, a programming language for cats, in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* layout: a paint-program canvas. everything is a flat box with a hard ink outline,
+   editor and output side by side on wide screens, stacked on phones. light only, on purpose. */
+:root {
+  --paper: #ffffff;
+  --ink: #141414;
+  --muted: #707070;
+  --faint: #e6e6e6;
+  --hi: #ffd60a;
+  --hiss: #d6293e;
+  --hiss-bg: #ffe0e4;
+
+  --syn-kw: #5a2bd4;
+  --syn-fn: #0a5fc4;
+  --syn-str: #11834a;
+  --syn-num: #c25500;
+  --syn-const: #c0187a;
+  --syn-com: #9b9b9b;
+
+  --pixel: "Silkscreen", "Courier New", monospace;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.6 var(--mono);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 40px;
+}
+::selection { background: var(--hi); color: var(--ink); }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+/* header */
+header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.logo-cat { margin: 0; font: 700 15px/1.15 var(--mono); }
+header h1 { font: 700 40px/1 var(--pixel); margin: 0; letter-spacing: 0.02em; }
+header p { margin: 4px 0 0; color: var(--muted); }
+
+/* toolbar */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.examples { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-right: auto; }
+.examples .label { color: var(--muted); margin-right: 4px; }
+.ex {
+  font: inherit; color: var(--ink); background: none; border: 0; padding: 2px 6px; cursor: pointer;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
+.ex:hover { background: var(--faint); }
+.ex.on { background: var(--hi); text-decoration: none; }
+
+button.run {
+  font: 700 16px/1 var(--pixel); color: var(--ink); background: var(--hi);
+  border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--ink);
+  padding: 10px 18px; cursor: pointer; display: flex; align-items: center; gap: 12px;
+}
+button.run small { font: 400 11px var(--mono); }
+button.run:not(:disabled):active { transform: translate(4px, 4px); box-shadow: none; }
+button.run:disabled { background: var(--faint); cursor: wait; }
+button:focus-visible, textarea:focus-visible { outline: 2px dashed var(--ink); outline-offset: 3px; }
+
+/* boxes */
+.panes { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 860px) { .panes { grid-template-columns: minmax(0, 1fr); } }
+.box { border: 2px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); background: var(--paper); display: flex; flex-direction: column; min-width: 0; }
+.box-label {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 5px 12px; border-bottom: 2px solid var(--ink); font-size: 12px;
+}
+.box-label .status { font-weight: 700; }
+.box-label .status.err { color: var(--hiss); }
+.box-label .status.good { background: var(--hi); padding: 0 4px; }
+@media (max-width: 600px) { .box-label .hint, button.run small { display: none; } }
+
+/* editor: textarea on top of a highlighted copy of the same text */
+.editor { display: flex; height: 460px; min-height: 0; }
+@media (max-width: 860px) { .editor { height: 360px; } }
+.gutter {
+  width: 44px; flex: none; overflow: hidden; border-right: 1px solid var(--faint);
+  font: 13px/22px var(--mono); color: var(--syn-com); text-align: right; user-select: none;
+}
+.gutter-inner { padding: 14px 10px 14px 0; }
+.gutter-inner div.err { color: var(--hiss); font-weight: 700; }
+.code { position: relative; flex: 1; min-width: 0; }
+.code textarea, .code pre {
+  position: absolute; inset: 0; margin: 0; border: 0;
+  padding: 14px 16px; font: 14px/22px var(--mono); tab-size: 4; letter-spacing: 0;
+  white-space: pre; overflow-wrap: normal;
+}
+.code pre { overflow: hidden; pointer-events: none; color: var(--ink); }
+.code textarea {
+  background: transparent; color: transparent; -webkit-text-fill-color: transparent;
+  caret-color: var(--ink); resize: none; overflow: auto; outline: none;
+}
+.code textarea::selection { background: rgba(255, 214, 10, 0.55); }
+.row { display: block; margin: 0 -16px; padding: 0 16px; min-height: 22px; }
+.row.err { background: var(--hiss-bg); }
+.t-kw { color: var(--syn-kw); font-weight: 700; }
+.t-fn { color: var(--syn-fn); }
+.t-str { color: var(--syn-str); }
+.t-num { color: var(--syn-num); }
+.t-const { color: var(--syn-const); font-weight: 700; }
+.t-com { color: var(--syn-com); }
+.t-dog { color: var(--hiss); text-decoration: wavy underline; text-underline-offset: 3px; }
+
+/* output */
+.output {
+  flex: 1; margin: 0; padding: 14px 16px; overflow: auto; height: 460px;
+  font: 13.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+@media (max-width: 860px) { .output { height: auto; min-height: 200px; max-height: 420px; } }
+.output .err { color: var(--hiss); }
+.output .note { color: var(--muted); }
+
+/* cheat sheet */
+.cheat { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 760px) { .cheat { grid-template-columns: minmax(0, 1fr); } }
+.cheat section { padding: 14px 16px 16px; min-width: 0; }
+.cheat section + section { border-left: 2px solid var(--ink); }
+@media (max-width: 760px) { .cheat section + section { border-left: 0; border-top: 2px solid var(--ink); } }
+.cheat h2 { font: 700 14px/1.2 var(--pixel); margin: 0 0 10px; }
+.cheat dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 18px; }
+.cheat dt { color: var(--syn-kw); font-weight: 500; }
+.cheat dd { margin: 0; color: var(--muted); }
+@media (max-width: 480px) {
+  .cheat dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .cheat dd { margin-bottom: 6px; }
+}
+footer { color: var(--muted); font-size: 12px; }
+footer a { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+<pre class="logo-cat" aria-hidden="true"> /\_/\
+( o.o )
+ > ^ <</pre>
+    <div>
+      <h1>catscript</h1>
+      <p>a programming language. for cats. sorry.</p>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <nav class="examples" id="examples" aria-label="examples"><span class="label">examples:</span></nav>
+    <button class="run" id="run" disabled>run <small>ctrl+enter</small></button>
+  </div>
+
+  <div class="panes">
+    <div class="box">
+      <div class="box-label"><span id="filename">main.meow</span><span class="hint">tab indents</span></div>
+      <div class="editor">
+        <div class="gutter" aria-hidden="true"><div class="gutter-inner" id="gutter"></div></div>
+        <div class="code">
+          <pre aria-hidden="true"><code id="hl"></code></pre>
+          <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="catscript code"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-label"><span>output</span><span class="status" id="status">waking tuft up...</span></div>
+      <pre class="output" id="out" aria-live="polite"><span class="note">loading python into your browser. first time takes a few seconds.</span></pre>
+    </div>
+  </div>
+
+  <div class="box cheat">
+    <section>
+      <h2>words</h2>
+      <dl>
+        <dt>cat(x)</dt><dd>print it</dd>
+        <dt>pspsps("q? ")</dt><dd>ask the user something</dd>
+        <dt>hunt f(x) { }</dt><dd>make a function</dd>
+        <dt>bring x</dt><dd>return from a hunt</dd>
+        <dt>litter[1, 2, 3]</dt><dd>a list</dd>
+        <dt>purr / hiss</dt><dd>true / false</dd>
+        <dt>empty_bowl</dt><dd>nothing</dd>
+        <dt>for i in 1 to 10 { }</dt><dd>count, both ends included</dd>
+        <dt>repeat 3 { }</dt><dd>do it 3 times</dd>
+        <dt>try { } pounce e { }</dt><dd>catch an error</dd>
+        <dt>knock(x)</dt><dd>knock a variable off the table</dd>
+        <dt>size / add / text</dt><dd>length, append, turn into text</dd>
+      </dl>
+    </section>
+    <section>
+      <h2>when tuft hisses</h2>
+      <dl>
+        <dt>HISS-100</dt><dd>can't read that character</dd>
+        <dt>HISS-200</dt><dd>code is shaped wrong (missing ) or })</dd>
+        <dt>HISS-204</dt><dd>nobody answered pspsps</dd>
+        <dt>HISS-300</dt><dd>wrong kinds of values (purr + 1)</dd>
+        <dt>HISS-403</dt><dd>dog word, or a taken name</dd>
+        <dt>HISS-404</dt><dd>that name doesn't exist</dd>
+        <dt>HISS-406</dt><dd>wrong number of things passed in</dd>
+        <dt>HISS-409</dt><dd>bring outside a hunt</dd>
+        <dt>HISS-416</dt><dd>no kitten at that position</dd>
+        <dt>HISS-500</dt><dd>divided by zero</dd>
+        <dt>HISS-508</dt><dd>chasing its tail (runs forever)</dd>
+      </dl>
+    </section>
+  </div>
+
+  <footer>made by <a href="https://github.com/yupthatscole">@yupthatscole</a>. runs the real interpreter in your browser. no dogs allowed.</footer>
+</div>
+
+<script>
+const PYODIDE_BASE = window.PYODIDE_BASE || "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
+const SOURCE_FILES = ["lexer.py", "parser.py", "interpreter.py", "catscript.py"];
+
+const EXAMPLES = {
+  "hello world": `# the classic
+cat("hello world")
+
+name = "tuft"
+lives = 9
+cat(name + " has " + lives + " lives")
+`,
+  "guessing game": `# guess the number tuft is thinking of
+secret = 7
+won = hiss
+
+cat("tuft is thinking of a number from 1 to 10.")
+cat("you get 3 guesses.")
+
+repeat 3 {
+    if not won {
+        guess = pspsps("your guess: ")
+        if guess == secret {
+            cat("purr. you got it.")
+            won = purr
+        } else if guess < secret {
+            cat("higher. obviously.")
+        } else {
+            cat("lower. think harder.")
+        }
+    }
+}
+
+if not won {
+    cat("it was " + secret + ". tuft is disappointed in you.")
+}
+`,
+  "fizzbuzz": `# fizzbuzz in catscript
+for i in 1 to 30 {
+    if i % 15 == 0 {
+        cat("FizzBuzz")
+    } else if i % 3 == 0 {
+        cat("Fizz")
+    } else if i % 5 == 0 {
+        cat("Buzz")
+    } else {
+        cat(i)
+    }
+}
+`,
+  "hunts & litters": `# hunts are functions, bring returns
+hunt double(x) {
+    bring x * 2
+}
+
+hunt factorial(n) {
+    if n <= 1 {
+        bring 1
+    }
+    bring n * factorial(n - 1)
+}
+
+cat("double 21 is", double(21))
+cat("5! =", factorial(5))
+
+# litters are lists
+kittens = litter["mochi", "pip", "clover"]
+add(kittens, "beans")
+cat(kittens)
+cat("there are", size(kittens), "kittens")
+
+for i in 0 to size(kittens) - 1 {
+    cat(i + ": " + kittens[i])
+}
+`,
+  "try & pounce": `# pounce catches errors instead of crashing
+try {
+    cat(10 / 0)
+} pounce oops {
+    cat("caught:", oops)
+}
+
+name = "tuft"
+knock(name)
+
+try {
+    cat(name)
+} pounce oops {
+    cat("caught:", oops)
+}
+`,
+  "broken (on purpose)": `# this one crashes. see what tuft thinks.
+lives = 9
+cat("lives left: " + lives)
+
+# dogs are not welcome here
+fetch(lives)
+`,
+};
+
+const KEYWORDS = new Set(["if","else","for","in","to","repeat","hunt","bring","try","pounce","knock","litter","and","or","not"]);
+const CONSTS = new Set(["purr","hiss","empty_bowl"]);
+const BUILTINS = new Set(["cat","pspsps","nap","size","add","text"]);
+const DOGS = new Set(["fetch","bark","goodboy","woof","sit","wag"]);
+
+const src = document.getElementById("src");
+const hl = document.getElementById("hl");
+const gutter = document.getElementById("gutter");
+const out = document.getElementById("out");
+const statusEl = document.getElementById("status");
+const runBtn = document.getElementById("run");
+const picker = document.getElementById("examples");
+
+let errorLine = 0;
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function highlightLine(line) {
+  const re = /(#.*$)|("(?:\\.|[^"\\])*"?)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)|([^\w\s"#]+)|(\s+)/g;
+  let html = "", m;
+  while ((m = re.exec(line)) !== null) {
+    const [tok, com, str, num, word] = m;
+    if (com) html += `<span class="t-com">${esc(com)}</span>`;
+    else if (str) html += `<span class="t-str">${esc(str)}</span>`;
+    else if (num) html += `<span class="t-num">${num}</span>`;
+    else if (word) {
+      const lower = word.toLowerCase();
+      if (DOGS.has(lower)) html += `<span class="t-dog">${word}</span>`;
+      else if (KEYWORDS.has(word)) html += `<span class="t-kw">${word}</span>`;
+      else if (CONSTS.has(word)) html += `<span class="t-const">${word}</span>`;
+      else if (BUILTINS.has(word)) html += `<span class="t-fn">${word}</span>`;
+      else html += esc(word);
+    } else html += esc(tok);
+    if (tok.length === 0) re.lastIndex++;
+  }
+  return html;
+}
+
+function render() {
+  const lines = src.value.split("\n");
+  hl.innerHTML = lines.map((l, i) =>
+    `<span class="row${i + 1 === errorLine ? " err" : ""}">${highlightLine(l) || " "}</span>`
+  ).join("");
+  gutter.innerHTML = lines.map((_, i) =>
+    `<div${i + 1 === errorLine ? ' class="err"' : ""}>${i + 1}</div>`
+  ).join("");
+  syncScroll();
+}
+
+function syncScroll() {
+  hl.parentElement.scrollTop = src.scrollTop;
+  hl.parentElement.scrollLeft = src.scrollLeft;
+  gutter.style.transform = `translateY(${-src.scrollTop}px)`;
+}
+
+function save() {
+  try { localStorage.setItem("catscript-draft", src.value); } catch (e) {}
+}
+
+src.addEventListener("input", () => { errorLine = 0; render(); save(); });
+src.addEventListener("scroll", syncScroll);
+
+// editor keys: tab indents, enter keeps indentation, ctrl+enter runs
+src.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    run();
+    return;
+  }
+  if (e.key === "Tab") {
+    e.preventDefault();
+    insert("    ");
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const before = src.value.slice(0, src.selectionStart);
+    const current = before.slice(before.lastIndexOf("\n") + 1);
+    let indent = current.match(/^\s*/)[0];
+    if (/\{\s*$/.test(current)) indent += "    ";
+    insert("\n" + indent);
+    return;
+  }
+  if (e.key === "}") {
+    // typing } on a blank line steps back one indent level
+    const before = src.value.slice(0, src.selectionStart);
+    const current = before.slice(before.lastIndexOf("\n") + 1);
+    if (/^\s{4,}$/.test(current) && src.selectionStart === src.selectionEnd) {
+      e.preventDefault();
+      src.setSelectionRange(src.selectionStart - 4, src.selectionStart);
+      insert("}");
+    }
+  }
+});
+
+function insert(text) {
+  const s = src.selectionStart, end = src.selectionEnd;
+  src.setRangeText(text, s, end, "end");
+  src.dispatchEvent(new Event("input"));
+}
+
+// examples
+function setActive(name) {
+  for (const b of picker.querySelectorAll(".ex")) b.classList.toggle("on", b.dataset.name === name);
+}
+for (const name of Object.keys(EXAMPLES)) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ex";
+  b.dataset.name = name;
+  b.textContent = name;
+  b.addEventListener("click", () => {
+    src.value = EXAMPLES[name];
+    errorLine = 0;
+    setActive(name);
+    render();
+    save();
+    src.focus();
+  });
+  picker.appendChild(b);
+}
+
+let draft = null;
+try { draft = localStorage.getItem("catscript-draft"); } catch (e) {}
+src.value = draft || EXAMPLES["hello world"];
+setActive(Object.keys(EXAMPLES).find((k) => EXAMPLES[k] === src.value));
+render();
+
+// output
+function clearOut() { out.innerHTML = ""; }
+function write(text, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text + "\n";
+  out.appendChild(span);
+}
+
+// python
+let pyodide = null;
+
+async function boot() {
+  try {
+    await loadScript(PYODIDE_BASE + "pyodide.js");
+    pyodide = await loadPyodide({ indexURL: PYODIDE_BASE });
+    pyodide.setStdout({ batched: (s) => write(s) });
+    pyodide.setStderr({ batched: (s) => write(s, "err") });
+
+    for (const name of SOURCE_FILES) {
+      const res = await fetch(name, { cache: "no-store" });
+      if (!res.ok) throw new Error(`couldn't load ${name} (put it next to index.html)`);
+      pyodide.FS.writeFile(name, await res.text());
+    }
+    pyodide.runPython(PLAYGROUND_PY);
+
+    statusEl.textContent = "ready";
+    clearOut();
+    write("press Run (or ctrl+enter) to run your code.", "note");
+    runBtn.disabled = false;
+  } catch (err) {
+    statusEl.textContent = "couldn't start";
+    statusEl.classList.add("err");
+    clearOut();
+    write("tuft couldn't wake up: " + err.message, "err");
+    write("if you opened this file directly, run it from a local server instead:\n  python -m http.server\nthen open http://localhost:8000", "note");
+  }
+}
+
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("couldn't download python (check your connection)"));
+    document.head.appendChild(s);
+  });
+}
+
+function run() {
+  if (!pyodide || runBtn.disabled) return;
+  runBtn.disabled = true;
+  statusEl.textContent = "running...";
+  statusEl.classList.remove("err", "good");
+  clearOut();
+  // let the button state paint before python blocks the page
+  setTimeout(() => {
+    let line = -1;
+    try {
+      pyodide.globals.set("_source", src.value);
+      line = pyodide.runPython("playground_run(_source)");
+    } catch (err) {
+      write(String(err), "err");
+      line = 0;
+    }
+    errorLine = line > 0 ? line : 0;
+    statusEl.textContent = line === -1 ? "purr" : "hiss";
+    statusEl.classList.toggle("err", line !== -1);
+    statusEl.classList.toggle("good", line === -1);
+    render();
+    if (errorLine) scrollToLine(errorLine);
+    runBtn.disabled = false;
+  }, 20);
+}
+
+function scrollToLine(n) {
+  const y = (n - 1) * 22;
+  if (y < src.scrollTop || y > src.scrollTop + src.clientHeight - 60) {
+    src.scrollTop = Math.max(0, y - src.clientHeight / 2);
+    syncScroll();
+  }
+}
+
+runBtn.addEventListener("click", run);
+
+const PLAYGROUND_PY = `
+import sys
+from js import window
+from lexer import tokenize, CatError
+from parser import parse
+import interpreter as _i
+from catscript import HAPPY_CAT, ANGRY_CAT
+
+STEP_LIMIT = 300_000
+
+def _pspsps(args, line):
+    _i.check_args("pspsps", args, 0, 1, line)
+    prompt = _i.show(args[0]) if args else ""
+    answer = window.prompt(prompt or "pspsps", "")
+    if answer is None:
+        raise CatError("HISS-204", "nobody answered pspsps", line)
+    print(prompt + str(answer))
+    for convert in (int, float):
+        try:
+            return convert(answer)
+        except ValueError:
+            pass
+    return answer
+
+def _nap(args, line):
+    _i.check_args("nap", args, 1, 1, line)
+    return None   # no naps in the browser, the page would freeze
+
+class PlaygroundInterpreter(_i.Interpreter):
+    def __init__(self):
+        super().__init__()
+        self.steps = 0
+        self.globals.define("pspsps", _i.Builtin("pspsps", _pspsps))
+        self.globals.define("nap", _i.Builtin("nap", _nap))
+
+    def execute(self, node, env):
+        self.steps += 1
+        if self.steps > STEP_LIMIT:
+            raise CatError("HISS-508", "your cat is chasing its tail (this ran too long for the playground)", node.line)
+        super().execute(node, env)
+
+def playground_run(source):
+    """Runs CatScript. Returns -1 if it worked, otherwise the line that broke (0 if unknown)."""
+    try:
+        PlaygroundInterpreter().run(parse(tokenize(source)))
+    except CatError as e:
+        print(str(e).strip("\\n"), file=sys.stderr)
+        print(ANGRY_CAT.rstrip(), file=sys.stderr)
+        return e.line or 0
+    except RecursionError:
+        print("  HISS-508: your cat is chasing its tail (a hunt called itself forever)", file=sys.stderr)
+        print(ANGRY_CAT.rstrip(), file=sys.stderr)
+        return 0
+    except Exception as e:
+        # a bug in catscript itself, not in the user's code
+        print("  HISS-999: catscript tripped over its own tail. this one's not your fault.", file=sys.stderr)
+        print(f"  ({type(e).__name__}: {e})", file=sys.stderr)
+        print(ANGRY_CAT.rstrip(), file=sys.stderr)
+        return 0
+    print(HAPPY_CAT.rstrip())
+    return -1
+`;
+
+boot();
+</script>
+</body>
+</html>
